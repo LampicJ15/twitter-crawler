@@ -1,9 +1,9 @@
 package graph
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
-	"fmt"
 	"github.com/neo4j/neo4j-go-driver/v5/neo4j"
 	"log"
 	"os"
@@ -18,7 +18,7 @@ var constraints = [...]string{
 
 const graphData = "resources/graph.jsonl"
 
-func SetupSchema(db database, ctx context.Context) {
+func setupSchema(db database, ctx context.Context) {
 	log.Println("Setting up graph schema")
 	session := db.NewSession(ctx, neo4j.SessionConfig{AccessMode: neo4j.AccessModeWrite})
 	defer session.Close(ctx)
@@ -35,66 +35,72 @@ func SetupSchema(db database, ctx context.Context) {
 	tx.Commit(ctx)
 }
 
-func Export(db database, ctx context.Context) {
-	exportNodes(db, ctx)
-	ExportRelationships(db, ctx)
+type importer interface {
+	importIt(ctx context.Context, tx neo4j.ExplicitTransaction)
 }
 
-func exportNodes(db database, ctx context.Context) {
-	log.Println("Creating graph file.")
-	f, err := os.Create("resources/nodes.jsonl")
+type ImportNode neo4j.Node
+type ImportRelationship neo4j.Relationship
+
+func (node ImportNode) importIt(ctx context.Context, tx neo4j.ExplicitTransaction) {
+	_, err := tx.Run(ctx, `MERGE (node {_id: $id})
+						SET node += $properties
+						WITH node
+						CALL apoc.create.setLabels(node, $labels) YIELD node AS _
+						RETURN *`,
+		map[string]any{"id": node.Id, "labels": node.Labels, "properties": node.Props})
+
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer f.Close()
-
-	session := db.NewSession(ctx, neo4j.SessionConfig{AccessMode: neo4j.AccessModeRead})
-	tx, _ := session.BeginTransaction(ctx, neo4j.WithTxTimeout(60*time.Second))
-
-	log.Println("Exporting graph nodes.")
-	result, _ := tx.Run(ctx, "MATCH (node) RETURN node", map[string]any{})
-	for result.Next(ctx) {
-		record := result.Record()
-		result, _ := record.Get("node")
-		resultNode := result.(neo4j.Node)
-		b, err := json.Marshal(resultNode)
-		if err != nil {
-			fmt.Println(err)
-			return
-		}
-		_, err2 := f.WriteString(string(b) + "\n")
-		if err2 != nil {
-			log.Fatal(err2)
-		}
-	}
-
-	tx.Close(ctx)
 }
 
-func ExportRelationships(db database, ctx context.Context) {
-	log.Println("Creating graph file.")
-	f, err := os.Create("resources/relationships.jsonl")
+func (relationship ImportRelationship) importIt(ctx context.Context, tx neo4j.ExplicitTransaction) {
+	return
+}
+
+func ImportGraph(filePath string, db database, ctx context.Context, batchSize int) {
+	log.Println("Importing graph nodes and relationships.")
+	log.Println("Setting up additional schema for faster import.")
+
+	// todo: add separate label for import
+	log.Printf("Importig nodes from file %s", filePath)
+	ImportAll[ImportNode](filePath, db, ctx, batchSize)
+	log.Println("Finished import of nodes, starting with relationships.")
+	ImportAll[ImportRelationship](filePath, db, ctx, batchSize)
+	log.Println("Finished import of relationships.")
+
+	log.Println("Cleaning up the additional schema.")
+	// todo: remove additional labels and properties from the db
+}
+
+func ImportAll[T importer](filePath string, db database, ctx context.Context, batchSize int) {
+	readFile, err := os.Open(filePath)
+	defer readFile.Close()
+
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer f.Close()
-	session := db.NewSession(ctx, neo4j.SessionConfig{AccessMode: neo4j.AccessModeRead})
+
+	fileScanner := bufio.NewScanner(readFile)
+	fileScanner.Split(bufio.ScanLines)
+
+	session := db.NewSession(ctx, neo4j.SessionConfig{AccessMode: neo4j.AccessModeWrite})
 	tx, _ := session.BeginTransaction(ctx, neo4j.WithTxTimeout(60*time.Second))
-	log.Println("Exporting graph relationships.")
-	result, _ := tx.Run(ctx, "MATCH ()-[relation]->() RETURN relation", map[string]any{})
-	for result.Next(ctx) {
-		record := result.Record()
-		result, _ := record.Get("relation")
-		resultRel := result.(neo4j.Relationship)
-		b, err := json.Marshal(resultRel)
-		if err != nil {
-			fmt.Println(err)
-			return
-		}
-		_, err2 := f.WriteString(string(b) + "\n")
-		if err2 != nil {
-			log.Fatal(err2)
+
+	var count int
+	for fileScanner.Scan() {
+		var graphObject T
+		json.Unmarshal([]byte(fileScanner.Text()), &graphObject)
+
+		graphObject.importIt(ctx, tx)
+
+		count++
+		if count == batchSize {
+			log.Printf("Reached the specified batch size of %d, commiting transaction", batchSize)
+			count = 0
+			tx.Commit(ctx)
+			tx, _ = session.BeginTransaction(ctx, neo4j.WithTxTimeout(60*time.Second))
 		}
 	}
-	tx.Close(ctx)
 }

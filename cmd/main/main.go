@@ -12,6 +12,6 @@ func main() {
 	database := graph.SetupDb(ctx, "neo4j://localhost:7687", "neo4j", "test")
 	defer database.CloseDb(ctx)
 
-	graph.SetupSchema(database, ctx)
-	graph.Export(database, ctx)
+	//graph.Export("graph.jsonl", database, ctx)
+	graph.ImportAll[graph.ImportNode]("resources/nodes.jsonl", database, ctx, 250)
 }
