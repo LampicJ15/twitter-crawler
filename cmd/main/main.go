@@ -13,5 +13,6 @@ func main() {
 	defer database.CloseDb(ctx)
 
 	//graph.Export("graph.jsonl", database, ctx)
-	graph.ImportAll[graph.ImportNode]("resources/nodes.jsonl", database, ctx, 250)
+	graph.ImportGraph(graph.ImportInstructions{NodesFilePath: "resources/nodes.jsonl", RelationshipsFilePath: "resources/relationships.jsonl"},
+		database, ctx, 1000)
 }
