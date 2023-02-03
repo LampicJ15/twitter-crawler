@@ -10,12 +10,12 @@ import (
 	"time"
 )
 
-func Export(fileName string, db database, ctx context.Context) {
+func Export(fileName string, db Database, ctx context.Context) {
 	exportNodes("nodes-"+fileName, db, ctx)
 	ExportRelationships("relationships-"+fileName, db, ctx)
 }
 
-func exportNodes(filePath string, db database, ctx context.Context) {
+func exportNodes(filePath string, db Database, ctx context.Context) {
 	f, err := os.Create(filePath)
 	if err != nil {
 		log.Fatal(err)
@@ -45,7 +45,7 @@ func exportNodes(filePath string, db database, ctx context.Context) {
 	log.Println("Export of graph nodes complete.")
 }
 
-func ExportRelationships(filePath string, db database, ctx context.Context) {
+func ExportRelationships(filePath string, db Database, ctx context.Context) {
 	f, err := os.Create(filePath)
 	if err != nil {
 		log.Fatal(err)

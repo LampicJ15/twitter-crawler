@@ -1,2 +1,4 @@
+github.com/g8rswimmer/go-twitter/v2 v2.1.5 h1:Uj9Yuof2UducrP4Xva7irnUJfB9354/VyUXKmc2D5gg=
+github.com/g8rswimmer/go-twitter/v2 v2.1.5/go.mod h1:/55xWb313KQs25X7oZrNSEwLQNkYHhPsDwFstc45vhc=
 github.com/neo4j/neo4j-go-driver/v5 v5.5.0 h1:KxufacDV+IqkzbzvjIAIGkBsa2i0lEB8/MhCgOQxrQo=
 github.com/neo4j/neo4j-go-driver/v5 v5.5.0/go.mod h1:Vff8OwT7QpLm7L2yYr85XNWe9Rbqlbeb9asNXJTHO4k=

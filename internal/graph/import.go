@@ -16,7 +16,7 @@ var constraints = [...]string{
 	"CREATE CONSTRAINT twitter_user_id IF NOT exists FOR (user:TwitterAccount) REQUIRE user.id IS UNIQUE",
 	"CREATE CONSTRAINT twitter_username IF NOT exists FOR (user:TwitterAccount) REQUIRE user.username IS UNIQUE"}
 
-func setupSchema(db database, ctx context.Context) {
+func setupSchema(db Database, ctx context.Context) {
 	session := db.NewSession(ctx, neo4j.SessionConfig{AccessMode: neo4j.AccessModeWrite})
 	defer session.Close(ctx)
 
@@ -77,7 +77,7 @@ type ImportInstructions struct {
 	RelationshipsFilePath string
 }
 
-func ImportGraph(importInstructions ImportInstructions, db database, ctx context.Context, batchSize int) {
+func ImportGraph(importInstructions ImportInstructions, db Database, ctx context.Context, batchSize int) {
 	log.Println("Importing graph nodes and relationships.")
 
 	log.Println("Setting up schema of the graph")
@@ -120,7 +120,7 @@ func ImportGraph(importInstructions ImportInstructions, db database, ctx context
 	})
 }
 
-func importAll[T importer](filePath string, db database, ctx context.Context, batchSize int) {
+func importAll[T importer](filePath string, db Database, ctx context.Context, batchSize int) {
 	readFile, err := os.Open(filePath)
 	defer readFile.Close()
 
