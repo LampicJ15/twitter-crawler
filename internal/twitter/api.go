@@ -51,8 +51,9 @@ func (client *twitterClient) LookupUsersByUsernames(ctx context.Context, usernam
 	log.Println(response.Raw.Users[0].PublicMetrics.Tweets)
 }
 
-func (client *twitterClient) GetUsersFollowing(ctx context.Context, id string, paginationToken string) (users []*twitter.UserObj, nextToken string, err error) {
+func (client *twitterClient) GetUsersFollowing(ctx context.Context, id string, paginationToken string) (*twitter.UserFollowingLookupResponse, error) {
 	lookUpOpts := twitter.UserFollowingLookupOpts{
+		MaxResults:      1000,
 		PaginationToken: paginationToken,
 		UserFields: []twitter.UserField{
 			twitter.UserFieldCreatedAt,
@@ -68,5 +69,5 @@ func (client *twitterClient) GetUsersFollowing(ctx context.Context, id string, p
 			twitter.UserFieldURL,
 			twitter.UserFieldPublicMetrics}}
 	response, err := client.twitter.UserFollowingLookup(ctx, id, lookUpOpts)
-	return response.Raw.Users, response.Meta.NextToken, err
+	return response, err
 }
