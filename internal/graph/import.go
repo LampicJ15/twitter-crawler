@@ -32,44 +32,28 @@ func setupSchema(db Database, ctx context.Context) {
 	tx.Commit(ctx)
 }
 
-type importer interface {
-	importIt(ctx context.Context, tx neo4j.ExplicitTransaction)
+type mappable interface {
+	toMap() map[string]any
 }
 
-type importNode neo4j.Node
-type importRelationship neo4j.Relationship
+type node neo4j.Node
+type relationship neo4j.Relationship
 
-func (node importNode) importIt(ctx context.Context, tx neo4j.ExplicitTransaction) {
-	_, err := tx.Run(ctx, `MERGE (node:_Import {_importId: $id})
-						SET node += $properties
-						WITH node
-						CALL apoc.create.addLabels(node, $labels) YIELD node AS _
-						RETURN *`,
-		map[string]any{"id": node.Id, "labels": node.Labels, "properties": node.Props})
+func (n node) toMap() map[string]any {
+	return map[string]any{"labels": n.Labels, "id": n.Id, "properties": n.Props}
+}
+
+func importWithCypherQuery(ctx context.Context, tx neo4j.ExplicitTransaction, query string, entities []map[string]any) {
+	_, err := tx.Run(ctx, query,
+		map[string]any{"entities": entities})
 
 	if err != nil {
 		log.Fatal(err)
 	}
 }
 
-func (relationship importRelationship) importIt(ctx context.Context, tx neo4j.ExplicitTransaction) {
-	_, err := tx.Run(ctx, `
-						MERGE (startNode:_Import {_importId: $startId})
-						MERGE (endNode:_Import {_importId: $endId})
-						WITH startNode, endNode
-						CALL apoc.merge.relationship(startNode, 
-													$type,
-													  {},
-													  $properties,
-													  endNode,
-													  {}
-													) YIELD rel RETURN rel
-						`,
-		map[string]any{"startId": relationship.StartId, "endId": relationship.EndId, "type": relationship.Type, "properties": relationship.Props})
-
-	if err != nil {
-		log.Fatal(err)
-	}
+func (rel relationship) toMap() map[string]any {
+	return map[string]any{"type": rel.Type, "startId": rel.StartId, "endId": rel.EndId, "properties": rel.Props}
 }
 
 type ImportInstructions struct {
@@ -89,7 +73,12 @@ func ImportGraph(importInstructions ImportInstructions, db Database, ctx context
 	})
 
 	log.Printf("Importig nodes from file %s.", importInstructions.NodesFilePath)
-	importAll[importNode](importInstructions.NodesFilePath, db, ctx, batchSize)
+	importAll[node](importInstructions.NodesFilePath, db, ctx, batchSize, `UNWIND $entities AS entity
+																				 MERGE (node:_Import {_importId: entity.id})
+																				 SET node += entity.properties
+																				 WITH node, entity
+																				 CALL apoc.create.addLabels(node, entity.labels) YIELD node AS _
+																				 RETURN *`)
 
 	log.Println("Fixing node property types.")
 	db.NewSession(ctx, neo4j.SessionConfig{AccessMode: neo4j.AccessModeWrite}).ExecuteWrite(ctx, func(tx neo4j.ManagedTransaction) (any, error) {
@@ -103,9 +92,12 @@ func ImportGraph(importInstructions ImportInstructions, db Database, ctx context
 	})
 
 	log.Printf("Finished import of nodes, starting with relationships from file %s.", importInstructions.RelationshipsFilePath)
-	importAll[importRelationship](importInstructions.RelationshipsFilePath, db, ctx, batchSize)
+	importAll[relationship](importInstructions.RelationshipsFilePath, db, ctx, batchSize, `UNWIND $entities AS entity
+																								 MATCH (startNode:_Import {_importId: entity.startId})
+																								 MATCH (endNode:_Import {_importId: entity.endId})
+																								 WITH entity, startNode, endNode
+																								 CALL apoc.merge.relationship(startNode, entity.type, {}, entity.properties, endNode, {}) YIELD rel RETURN rel`)
 	log.Println("Finished import of relationships.")
-
 	log.Println("Cleaning up the additional schema.")
 	db.NewSession(ctx, neo4j.SessionConfig{AccessMode: neo4j.AccessModeWrite}).ExecuteWrite(ctx, func(tx neo4j.ManagedTransaction) (any, error) {
 		return tx.Run(ctx, "MATCH (n:_Import) SET n._importId = NULL", map[string]any{})
@@ -120,7 +112,7 @@ func ImportGraph(importInstructions ImportInstructions, db Database, ctx context
 	})
 }
 
-func importAll[T importer](filePath string, db Database, ctx context.Context, batchSize int) {
+func importAll[T mappable](filePath string, db Database, ctx context.Context, batchSize int, query string) {
 	readFile, err := os.Open(filePath)
 	defer readFile.Close()
 
@@ -134,19 +126,20 @@ func importAll[T importer](filePath string, db Database, ctx context.Context, ba
 	session := db.NewSession(ctx, neo4j.SessionConfig{AccessMode: neo4j.AccessModeWrite})
 	tx, _ := session.BeginTransaction(ctx, neo4j.WithTxTimeout(60*time.Second))
 
-	var count int
+	var graph []map[string]any
 	for fileScanner.Scan() {
-		var graphObject T
-		json.Unmarshal([]byte(fileScanner.Text()), &graphObject)
+		var graphEntity T
+		json.Unmarshal([]byte(fileScanner.Text()), &graphEntity)
+		graph = append(graph, graphEntity.toMap())
 
-		graphObject.importIt(ctx, tx)
-
-		count++
-		if count == batchSize {
+		if batchSize == len(graph) {
 			log.Printf("Reached the specified batch size of %d, commiting transaction.", batchSize)
-			count = 0
+			importWithCypherQuery(ctx, tx, query, graph)
 			tx.Commit(ctx)
 			tx, _ = session.BeginTransaction(ctx, neo4j.WithTxTimeout(60*time.Second))
+			graph = nil
 		}
 	}
+	importWithCypherQuery(ctx, tx, query, graph)
+	tx.Commit(ctx)
 }

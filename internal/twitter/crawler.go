@@ -145,23 +145,18 @@ func storeUserFollowing(ctx context.Context, db graph.Database, user crawlUser, 
 
 func Crawl(ctx context.Context, db graph.Database, client twitterClient) {
 	setupGraphForCrawling(ctx, db)
-	var failCount int
 	for {
 		user := getNextUserToCrawl(ctx, db)
 		log.Printf("Crawling user with id %s, username %s and pagination token %s.", user.id, user.username, user.paginationToken)
 		response, err := client.GetUsersFollowing(ctx, user.id, user.paginationToken)
 
 		if err != nil {
-			failCount++
 			log.Println(err)
 			log.Println("Sleeping for 15 minutes.")
 			time.Sleep(15 * time.Minute)
-
-			if failCount == 5 {
-				log.Fatal(err)
-			}
+			continue
 		}
-		storeUserFollowing(ctx, db, user, response)
 
+		storeUserFollowing(ctx, db, user, response)
 	}
 }
