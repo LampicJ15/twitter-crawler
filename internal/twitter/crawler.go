@@ -67,6 +67,12 @@ func getNextUserToCrawl(ctx context.Context, db graph.Database) crawlUser {
 		}
 
 		record, err := result.Single(ctx)
+		if record == nil {
+			log.Fatal("There is no twitter user to crawl, please check if you have any twitter accounts in the database.")
+		}
+		if err != nil {
+			log.Fatal(err)
+		}
 		userId, _ := record.Get("id")
 		username, _ := record.Get("username")
 		token, _ := record.Get("paginationToken")
@@ -92,6 +98,7 @@ func toSliceOfMaps(response *twitter.UserFollowingLookupResponse) []map[string]a
 			"location":         user.ProfileImageURL,
 			"verified":         user.Verified,
 			"url":              user.URL,
+			"description":      user.Description,
 		})
 	}
 	return followings
@@ -117,15 +124,16 @@ func storeUserFollowing(ctx context.Context, db graph.Database, user crawlUser, 
 									MERGE (followedUser:TwitterAccount {id: entity.id})
 									  ON CREATE SET followedUser += {
 										name:              entity.name,
+										description:       entity.description,
 										username:          entity.username,
-										createdAt:         datetime(entity.created_at),
-										followersCount:    entity.public_metrics.followers_count,
-										followingsCount:   entity.public_metrics.following_count,
-										tweetCount:        entity.public_metrics.tweet_count,
-										isAccountPrivate:  entity.protected,
-										profileImageUrl:   entity.profile_image_url,
+										createdAt:         datetime(entity.createdAt),
+										followersCount:    entity.followersCount,
+										followingsCount:   entity.followingsCount,
+										tweetCount:        entity.tweetCount,
+										isAccountPrivate:  entity.isAccountPrivate,
+										profileImageUrl:   entity.profileImageUrl,
 										location:          entity.location,
-										verified:          entity. verified,
+										verified:          entity.verified,
 										url:               entity.url,
 										_referenceScore:   0.0,
 										_importedFollowing: false
